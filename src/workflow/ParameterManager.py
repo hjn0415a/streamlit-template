@@ -75,6 +75,7 @@ class ParameterManager:
                 ]
             )
         )
+
         # Retrieve the instance-name → real-tool-name mapping (set by input_TOPP)
         tool_instance_map = st.session_state.get("_topp_tool_instance_map", {})
         # for each TOPP tool (or instance name), open the ini file

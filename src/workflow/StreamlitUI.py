@@ -31,6 +31,7 @@ class StreamlitUI:
     """
 
     # Methods for Streamlit UI components
+
     def __init__(self, workflow_dir, logger, executor, parameter_manager):
         self.workflow_dir = workflow_dir
         self.logger = logger
@@ -612,6 +613,7 @@ class StreamlitUI:
         num_cols: int = 4,
         exclude_parameters: List[str] = [],
         include_parameters: List[str] = [],
+        flag_parameters: List[str] = [],
         display_tool_name: bool = True,
         display_subsections: bool = True,
         display_subsection_tabs: bool = False,
@@ -628,6 +630,8 @@ class StreamlitUI:
             num_cols (int, optional): Number of columns to use for the layout. Defaults to 3.
             exclude_parameters (List[str], optional): List of parameter names to exclude from the widget. Defaults to an empty list.
             include_parameters (List[str], optional): List of parameter names to include in the widget. Defaults to an empty list.
+            flag_parameters (List[str], optional): List of parameter names that should
+                be treated as no-value CLI flags during command construction.
             display_tool_name (bool, optional): Whether to display the TOPP tool name. Defaults to True.
             display_subsections (bool, optional): Whether to split parameters into subsections based on the prefix. Defaults to True.
             display_subsection_tabs (bool, optional): Whether to display main subsections in separate tabs (if more than one main section). Defaults to False.
@@ -647,6 +651,16 @@ class StreamlitUI:
         if "_topp_tool_instance_map" not in st.session_state:
             st.session_state["_topp_tool_instance_map"] = {}
         st.session_state["_topp_tool_instance_map"][tool_instance_name] = topp_tool_name
+        if "_topp_flag_params" not in st.session_state:
+            st.session_state["_topp_flag_params"] = {}
+        st.session_state["_topp_flag_params"][tool_instance_name] = list(flag_parameters)
+        # Persist flag metadata so execution still sees it outside UI reruns/session context.
+        params = self.parameter_manager.get_parameters_from_json()
+        if "_flag_params" not in params:
+            params["_flag_params"] = {}
+        params["_flag_params"][tool_instance_name] = list(flag_parameters)
+        with open(self.parameter_manager.params_file, "w", encoding="utf-8") as f:
+            json.dump(params, f, indent=4)
 
         if not display_subsections:
             display_subsection_tabs = False
@@ -738,6 +752,7 @@ class StreamlitUI:
                     ":".join(key.decode().split(":")[:-1])
                 ),
             }
+            p["is_flag"] = (b"flag" in param.getTags(key))
             # Parameter sections and subsections as string (e.g. "section:subsection")
             if display_subsections:
                 p["sections"] = ":".join(
@@ -817,27 +832,58 @@ class StreamlitUI:
             """Displays individual TOPP parameters in given number of columns"""
             cols = st.columns(num_cols)
             i = 0
+            # st.write("--------------------------------display_TOPP_params------------------------------------")
+            # st.write(params)
             for p in params:
                 # get key and name – use tool_instance_name in session state key
                 key_str = p['key'].decode()
                 if tool_instance_name != topp_tool_name:
                     key_str = key_str.replace(f"{topp_tool_name}:1:", f"{tool_instance_name}:1:", 1)
                 key = f"{self.parameter_manager.topp_param_prefix}{key_str}"
+                # st.write("--------------------------------p['key'](display_TOPP_params loop)------------------------------------")
+                # st.write(key)
                 name = p["name"]
                 try:
                     # sometimes strings with newline, handle as list
                     if isinstance(p["value"], str) and "\n" in p["value"]:
                         p["value"] = p["value"].split("\n")
-                    # bools
-                    if isinstance(p["value"], bool):
-                        cols[i].markdown("##")
-                        cols[i].checkbox(
+                    # no-value CLI flag parameters should be shown as checkboxes
+                    if p.get("is_flag", False):
+                        flag_default = p["value"]
+                        if isinstance(flag_default, str):
+                            flag_default = flag_default.lower() in {"true", "1", "yes", "on"}
+                        else:
+                            flag_default = bool(flag_default)
+                        # Streamlit widget keys persist in session_state and can override
+                        # updated custom_defaults. Normalize and seed key explicitly.
+                        if key in st.session_state:
+                            current = st.session_state[key]
+                            if isinstance(current, str):
+                                st.session_state[key] = current.lower() in {"true", "1", "yes", "on"}
+                            else:
+                                st.session_state[key] = bool(current)
+                        else:
+                            st.session_state[key] = flag_default
+                        cols[i].selectbox(
                             name,
-                            value=(
-                                (p["value"] == "true")
-                                if type(p["value"]) == str
-                                else p["value"]
-                            ),
+                            options=[True, False],
+                            index=0 if st.session_state[key] else 1,
+                            format_func=lambda x: "True" if x else "False",
+                            help=p["description"],
+                            key=key,
+                        )
+                    # bools
+                    elif isinstance(p["value"], bool):
+                        bool_value = (
+                            (p["value"] == "true")
+                            if type(p["value"]) == str
+                            else p["value"]
+                        )
+                        cols[i].selectbox(
+                            name,
+                            options=[True, False],
+                            index=0 if bool_value else 1,
+                            format_func=lambda x: "True" if x else "False",
                             help=p["description"],
                             key=key,
                         )
@@ -921,7 +967,6 @@ class StreamlitUI:
                 except Exception as e:
                     cols[i].error(f"Error in parameter **{p['name']}**.")
                     print('Error parsing "' + p["name"] + '": ' + str(e))
-
 
         for section, params in param_sections.items():
             if tabs is None:
