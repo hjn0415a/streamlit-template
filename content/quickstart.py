@@ -132,36 +132,36 @@ Uses the integrated parameter handling with global parameters across pages, incl
 To get an idea check out the following pages from the example worklfow (file upload first!).
 """
 )
-st.page_link(
-    "content/file_upload.py",
-    label="Upload your own mzML files or use the provided example data set.",
-    icon="➡️",
-)
-st.page_link(
-    "content/raw_data_viewer.py",
-    label="Visualize mzML file content in an interactive dashboard.",
-    icon="➡️",
-)
-st.page_link(
-    "content/run_example_workflow.py",
-    label="Run a small example workflow with mzML files and check out results.",
-    icon="➡️",
-)
+# st.page_link(
+#     "content/file_upload.py",
+#     label="Upload your own mzML files or use the provided example data set.",
+#     icon="➡️",
+# )
+# st.page_link(
+#     "content/raw_data_viewer.py",
+#     label="Visualize mzML file content in an interactive dashboard.",
+#     icon="➡️",
+# )
+# st.page_link(
+#     "content/run_example_workflow.py",
+#     label="Run a small example workflow with mzML files and check out results.",
+#     icon="➡️",
+# )
 
-st.markdown(
-    """
-### Other Topics
+# st.markdown(
+#     """
+# ### Other Topics
             
-Includes other example pages which are independent to showcase other functionalities.
-"""
-)
-st.page_link(
-    "content/simple_workflow.py",
-    label="A very simple worklfow explaining the concepts of data caching in streamlit.",
-    icon="➡️",
-)
-st.page_link(
-    "content/run_subprocess.py",
-    label="How to run any command line tool as subprocess from within the OpenMS web app.",
-    icon="➡️",
-)
+# Includes other example pages which are independent to showcase other functionalities.
+# """
+# )
+# st.page_link(
+#     "content/simple_workflow.py",
+#     label="A very simple worklfow explaining the concepts of data caching in streamlit.",
+#     icon="➡️",
+# )
+# st.page_link(
+#     "content/run_subprocess.py",
+#     label="How to run any command line tool as subprocess from within the OpenMS web app.",
+#     icon="➡️",
+# )

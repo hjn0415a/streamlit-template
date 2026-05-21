@@ -30,7 +30,7 @@ cache_dir = workflow_dir / "results" / "insight_cache"
 
 if not comet_dir.exists():
     st.info("No database search results available yet. Please run the workflow first.")
-    st.page_link("content/workflow_run.py", label="Go to Run", icon="🚀")
+    # st.page_link("content/workflow_run.py", label="Go to Run", icon="🚀")
     st.stop()
 
 comet_files = sorted(comet_dir.glob("*.idXML"))
