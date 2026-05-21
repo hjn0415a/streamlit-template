@@ -28,7 +28,7 @@ parameter_manager = ParameterManager(workflow_dir, "TOPP Workflow")
 workflow_params = parameter_manager.get_parameters_from_json() 
 analysis_mode = workflow_params.get("analysis-mode", "LFQ")
 
-st.write("analysis_mode:", analysis_mode)
+# st.write("analysis_mode:", analysis_mode)
 
 if not quant_dir.exists():
     st.info("No quantification results available yet. Please run the workflow first.")

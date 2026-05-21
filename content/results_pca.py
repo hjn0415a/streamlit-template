@@ -32,106 +32,53 @@ pivot_df, expr_df, group_map = result
 
 workflow_dir = get_workflow_dir(st.session_state["workspace"])
 parameter_manager = ParameterManager(workflow_dir, "TOPP Workflow")
-
 workflow_params = parameter_manager.get_parameters_from_json() 
 analysis_mode = workflow_params.get("analysis-mode", "LFQ")
 
+st.write("Workflow Analysis Mode:", analysis_mode)
+
+top_n = 500
+
 if analysis_mode == "LFQ":
-    top_n = 500
+    protein_col = "ProteinName"
+else:
+    protein_col = "protein"
 
-    top_proteins = (
-        pivot_df
-        .dropna(subset=["p-adj"])
-        .sort_values("p-adj", ascending=True)
-        .head(top_n)["ProteinName"]
-    )
+top_proteins = (
+    pivot_df
+    .dropna(subset=["p-adj"])
+    .sort_values("p-adj", ascending=True)
+    .head(top_n)[protein_col]
+)
 
-    expr_df_pca = expr_df.loc[
-        expr_df.index.intersection(top_proteins)
-    ]
+expr_df_pca = expr_df.loc[
+    expr_df.index.intersection(top_proteins)
+]
 
-    if expr_df_pca.shape[0] < 2:
-        st.info("Not enough proteins after p-value filtering for PCA.")
-        st.stop()
+if expr_df_pca.shape[0] < 2:
+    st.info("Not enough proteins after p-value filtering for PCA.")
+    st.stop()
 
-    X = expr_df_pca.T
-    X_scaled = StandardScaler().fit_transform(X)
+X = expr_df_pca.T
+X_scaled = StandardScaler().fit_transform(X)
 
-    pca = PCA(n_components=2)
-    pcs = pca.fit_transform(X_scaled)
+pca = PCA(n_components=2)
+pcs = pca.fit_transform(X_scaled)
 
-    pca_df = pd.DataFrame(
-        pcs,
-        columns=["PC1", "PC2"],
-        index=X.index
-    )
+pca_df = pd.DataFrame(
+    pcs,
+    columns=["PC1", "PC2"],
+    index=X.index
+)
 
+if analysis_mode == "LFQ":
     norm_map = {
         k.replace(".mzML", ""): v
         for k, v in group_map.items()
     }
-    pca_df["Group"] = pca_df.index.map(norm_map)
-
-    fig_pca = px.scatter(
-        pca_df,
-        x="PC1",
-        y="PC2",
-        color="Group",
-        text=pca_df.index,
-    )
-
-    fig_pca.update_traces(textposition="top center")
-    fig_pca.update_layout(
-        xaxis_title=f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)",
-        yaxis_title=f"PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)",
-        height=600,
-    )
-
-    st.plotly_chart(fig_pca, use_container_width=True)
-
-    st.markdown(f"**Proteins used:** {expr_df_pca.shape[0]} (top {top_n} by p-adj)")
-
-    st.markdown("---")
-    st.markdown("**Other visualizations:**")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.page_link("content/results_volcano.py", label="Volcano Plot", icon="🌋")
-    with col2:
-        st.page_link("content/results_heatmap.py", label="Heatmap", icon="🔥")
 else:
-    top_n = 500
-
-    top_proteins = (
-        pivot_df
-        .dropna(subset=["p-adj"])
-        .sort_values("p-adj", ascending=True)
-        .head(top_n)["protein"]
-    )
-
-    expr_df_pca = expr_df.loc[
-        expr_df.index.intersection(top_proteins)
-    ]
-
-    if expr_df_pca.shape[0] < 2:
-        st.info("Not enough proteins after p-value filtering for PCA.")
-        st.stop()
-
-    X = expr_df_pca.T
-    X_scaled = StandardScaler().fit_transform(X)
-
-    pca = PCA(n_components=2)
-    pcs = pca.fit_transform(X_scaled)
-
-    pca_df = pd.DataFrame(
-        pcs,
-        columns=["PC1", "PC2"],
-        index=X.index
-    )
-
     actual_sample_names = pca_df.index.tolist()
-
     norm_map = {}
-
     for k, v in group_map.items():
         try:
             sample_idx = int(k) + 1
@@ -143,31 +90,31 @@ else:
         except ValueError:
             continue
 
-    pca_df["Group"] = pca_df.index.map(norm_map)
+pca_df["Group"] = pca_df.index.map(norm_map)
 
-    fig_pca = px.scatter(
-        pca_df,
-        x="PC1",
-        y="PC2",
-        color="Group",
-        text=pca_df.index,
-    )
+fig_pca = px.scatter(
+    pca_df,
+    x="PC1",
+    y="PC2",
+    color="Group",
+    text=pca_df.index,
+)
 
-    fig_pca.update_traces(textposition="top center")
-    fig_pca.update_layout(
-        xaxis_title=f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)",
-        yaxis_title=f"PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)",
-        height=600,
-    )
+fig_pca.update_traces(textposition="top center")
+fig_pca.update_layout(
+    xaxis_title=f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)",
+    yaxis_title=f"PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)",
+    height=600,
+)
 
-    st.plotly_chart(fig_pca, width="stretch")
+st.plotly_chart(fig_pca, width="stretch")
 
-    st.markdown(f"**Proteins used:** {expr_df_pca.shape[0]} (top {top_n} by p-adj)")
+st.markdown(f"**Proteins used:** {expr_df_pca.shape[0]} (top {top_n} by p-adj)")
 
-    st.markdown("---")
-    st.markdown("**Other visualizations:**")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.page_link("content/results_volcano.py", label="Volcano Plot", icon="🌋")
-    with col2:
-        st.page_link("content/results_heatmap.py", label="Heatmap", icon="🔥")
+st.markdown("---")
+st.markdown("**Other visualizations:**")
+col1, col2 = st.columns(2)
+with col1:
+    st.page_link("content/results_volcano.py", label="Volcano Plot", icon="🌋")
+with col2:
+    st.page_link("content/results_heatmap.py", label="Heatmap", icon="🔥")

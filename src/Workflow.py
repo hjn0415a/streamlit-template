@@ -154,9 +154,10 @@ class Workflow(WorkflowManager):
                     "PeptideIndexing:IL_equivalent": True,
                     "PeptideIndexing:unmatched_action": "warn",
                     "PeptideIndexing:decoy_string": "rev_",
+                    "mass_recalibration": False,
                 },
                 include_parameters=comet_include,
-                flag_parameters=["PeptideIndexing:IL_equivalent"],
+                flag_parameters=["PeptideIndexing:IL_equivalent", "mass_recalibration"],
                 exclude_parameters=["second_enzyme"],
             )
 
@@ -276,6 +277,10 @@ class Workflow(WorkflowManager):
                     "psmFDR": 0.01,
                     "proteinFDR": 0.01,
                     "picked_proteinFDR": "true",
+                    "alignment_order": "star",
+                    "protein_quantification": "unique_peptides",
+                    "quantification_method": "feature_intensity",
+                    "protein_inference": "aggregation",
                 },
                 include_parameters=["intThreshold", "psmFDR", "proteinFDR"],
             )
@@ -404,7 +409,8 @@ class Workflow(WorkflowManager):
                     "extraction:min_precursor_purity": 0.0,
                     "extraction:precursor_isotope_deviation": 10.0,
                     "quantification:isotope_correction": "false",
-                }
+                },
+                tool_instance_name="IsobaricAnalyzer-TMT",
             )
         with t[1]:
             comet_include = [":enzyme", "missed_cleavages", "fixed_modifications", "variable_modifications",
@@ -438,6 +444,7 @@ class Workflow(WorkflowManager):
                 include_parameters=comet_include,
                 flag_parameters=["PeptideIndexing:IL_equivalent", "force"],
                 exclude_parameters=["second_enzyme"],
+                tool_instance_name="CometAdapter-TMT",
             )
         with t[2]:
             st.info("""
@@ -455,6 +462,7 @@ class Workflow(WorkflowManager):
                     "debug": 0,
                 },
                 flag_parameters=["post_processing_tdc"],
+                tool_instance_name="PercolatorAdapter-TMT",
             )
 
         with t[3]:
@@ -478,7 +486,8 @@ class Workflow(WorkflowManager):
                 custom_defaults={
                     "threads": 8,
                     "debug": 0,
-                }
+                },
+                tool_instance_name="IDMapper-TMT",
             )
         with t[5]:
             self.ui.input_TOPP(
@@ -489,7 +498,8 @@ class Workflow(WorkflowManager):
                     "annotate_file_origin": True,
                     "threads": 8,
                 },
-                flag_parameters=["annotate_file_origin"]
+                flag_parameters=["annotate_file_origin"],
+                tool_instance_name="FileMerger-TMT",
             )
         with t[6]:
             self.ui.input_TOPP(
@@ -504,7 +514,8 @@ class Workflow(WorkflowManager):
                     "Algorithm:score_type": "PEP",
                     "Algorithm:score_aggregation_method": "best",
                     "Algorithm:min_peptides_per_protein": 1,
-                }
+                },
+                tool_instance_name="ProteinInference-TMT",
             )
         with t[7]:
             # A single checkbox widget for workflow logic.
@@ -529,7 +540,8 @@ class Workflow(WorkflowManager):
                 "IDConflictResolver",
                 custom_defaults={
                     "threads": 4,
-                }
+                },
+                tool_instance_name="IDConflictResolver-TMT",
             )
 
         with t[9]:
@@ -544,7 +556,8 @@ class Workflow(WorkflowManager):
                     "threads": 8,
                     "debug": 0,
                 },
-                flag_parameters=["top:include_all", "ratios"]
+                flag_parameters=["top:include_all", "ratios"],
+                tool_instance_name="ProteinQuantifier-TMT",
             )
         with t[10]:
             st.markdown("### 🧪 TMT Sample Group Assignment")
@@ -724,7 +737,7 @@ class Workflow(WorkflowManager):
             results_dir = Path(self.workflow_dir, "results")
             comet_dir = results_dir / "comet_results"
             perc_dir = results_dir / "percolator_results"
-            filter_dir = results_dir / "filter_results"
+            filter_dir = results_dir / "psm_filter"
             quant_dir = results_dir / "quant_results"
 
             results_dir = Path(self.workflow_dir, "input-files")
@@ -1174,13 +1187,11 @@ class Workflow(WorkflowManager):
                             },
                             {
                                 "fasta": str(database_fasta),
-                                "psmFDR": 0.5,
-                                "proteinFDR": 0.5,
                                 "threads": 12,
                                 # Disable FAIMS/IM handling to avoid segfault in OpenMS 3.5.0
                                 "PeptideQuantification:extract:IM_window": "0.0",
                                 "PeptideQuantification:faims:merge_features": "false",
-                            }
+                            },
                         ):
                         self.logger.log("Workflow stopped due to error")
                         return False
@@ -1212,7 +1223,7 @@ class Workflow(WorkflowManager):
             iso_dir = results_dir / "isobaric_consensusXML"
             comet_dir = results_dir / "comet_results"
             perc_dir = results_dir / "percolator_results"
-            psm_filter_dir = results_dir / "filter_results"
+            psm_filter_dir = results_dir / "psm_filter"
             map_dir = results_dir / "idmapper"
             merge_dir = results_dir / "merged"
             protein_dir = results_dir / "protein"
@@ -1254,6 +1265,7 @@ class Workflow(WorkflowManager):
                         "in": in_mzML,
                         "out": iso_consensus,
                     },
+                    tool_instance_name="IsobaricAnalyzer-TMT",
                 ):
                     self.logger.log("Workflow stopped due to error")
                     return False
@@ -1273,6 +1285,7 @@ class Workflow(WorkflowManager):
                         "out": comet_results,
                     },
                     comet_extra_params,
+                    tool_instance_name="CometAdapter-TMT",
                 ):
                     self.logger.log("Workflow stopped due to error")
                     return False
@@ -1384,6 +1397,7 @@ class Workflow(WorkflowManager):
                         "in": comet_results,
                         "out": percolator_results,
                     },
+                    tool_instance_name="PercolatorAdapter-TMT",
                 ):
                     self.logger.log("Workflow stopped due to error")
                     return False
@@ -1564,6 +1578,7 @@ class Workflow(WorkflowManager):
                             "id": [psm],
                             "out": [mapped],
                         },
+                        tool_instance_name="IDMapper-TMT",
                     ):
                         self.logger.log("Workflow stopped due to error")
                         return False
@@ -1578,6 +1593,7 @@ class Workflow(WorkflowManager):
                         "in": mapped_ids,
                         "out": [merged_id],
                     },
+                    tool_instance_name="FileMerger-TMT",
                 ):
                     self.logger.log("Workflow stopped due to error")
                     return False
@@ -1592,6 +1608,7 @@ class Workflow(WorkflowManager):
                         "in": [merged_id],
                         "out": [protein_id],
                     },
+                    tool_instance_name="ProteinInference-TMT",
                 ):
                     self.logger.log("Workflow stopped due to error")
                     return False
@@ -1623,6 +1640,7 @@ class Workflow(WorkflowManager):
                         "in": [protein_filter],
                         "out": [protein_resolved],
                     },
+                    tool_instance_name="IDConflictResolver-TMT",
                 ):
                     self.logger.log("Workflow stopped due to error")
                     return False
@@ -1639,22 +1657,12 @@ class Workflow(WorkflowManager):
                         "in": [protein_resolved],
                         "out": [consensus_out],
                     },
+                    tool_instance_name="ProteinQuantifier-TMT",
                 ):
                     self.logger.log("Workflow stopped due to error")
                     return False
             self.logger.log("✅ ProteinQuantifier complete")
-
             self.logger.log("📄 Generating protein table...")
-
-            exclude_indices = st.session_state.get("tmt_exclude_indices", [])
-            group_map = st.session_state.get("tmt_group_map", {})
-
-            results_dir = Path(st.session_state["workspace"]) / "topp-workflow" / "results" / "quant"
-            consensus_out = results_dir / "openms_design_protein_openms.csv"
-            
-            if not consensus_out.exists():
-                self.logger.log(f"❌ Error: Abundance file not found at {consensus_out}", level="error")
-                return
             
             self.logger.log("🎉 WORKFLOW FINISHED")
 

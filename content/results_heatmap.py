@@ -36,6 +36,8 @@ parameter_manager = ParameterManager(workflow_dir, "TOPP Workflow")
 workflow_params = parameter_manager.get_parameters_from_json() 
 analysis_mode = workflow_params.get("analysis-mode", "LFQ")
 
+st.write("Workflow Analysis Mode:", analysis_mode)
+
 if analysis_mode == "LFQ":
     top_n = st.slider("Number of proteins", 20, 200, 50, key="heatmap_top_n")
 

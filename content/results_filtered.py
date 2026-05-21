@@ -4,6 +4,7 @@ from pathlib import Path
 from src.common.common import page_setup
 from src.common.results_helpers import get_workflow_dir
 from openms_insight import Table, Heatmap, LinePlot, SequenceView, StateManager
+from src.workflow.ParameterManager import ParameterManager
 
 params = page_setup()
 st.title("Filtered PSMs")
@@ -26,6 +27,7 @@ if "workspace" not in st.session_state:
     st.stop()
 
 workflow_dir = get_workflow_dir(st.session_state["workspace"])
+
 filter_dir = workflow_dir / "results" / "psm_filter"
 cache_dir = workflow_dir / "results" / "insight_cache"
 
