@@ -111,7 +111,7 @@ jobs:
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
         with:
-          name: openms-streamlit-${{ matrix.variant }}-image
+          name: openms-streamlit-${{ matrix.variant }}-amd64-image
           path: /tmp/image.tar
           retention-days: 1
 
@@ -121,9 +121,9 @@ jobs:
     # under `<ref>-<variant>` by the `create-manifest` job below. The build
     # uses a separate `Dockerfile.arm` / `Dockerfile_simple.arm` that swaps
     # the miniforge installer to aarch64 and (for the full variant) guards
-    # the THIRDPARTY/Linux/aarch64 copy. Apptainer/nginx/traefik integration
-    # tests still run only on the amd64 artifact — those gates do not need
-    # arch duplication right now (HPC consumers of the SIF are amd64).
+    # the THIRDPARTY/Linux/aarch64 copy. The built image is also uploaded as
+    # an artifact so the apptainer / nginx / traefik integration jobs can
+    # exercise the ARM image on a native ARM runner (matrix arch=arm64).
     needs: lint-manifests
     runs-on: ubuntu-24.04-arm
     permissions:
@@ -180,6 +180,7 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           platforms: linux/arm64
+          load: true
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -189,30 +190,22 @@ jobs:
           build-args: |
             GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
 
-      - name: Smoke test the just-pushed arm64 image
-        # PRs build (validates Dockerfile.arm parses + compiles) but don't
-        # push, so there's nothing to pull back on PR events. On push/tag,
-        # pull the just-published image and verify /_stcore/health to catch
-        # entrypoint regressions that wouldn't surface in the build itself.
-        if: github.event_name != 'pull_request'
+      - name: Retag for kind (stable local tag)
         run: |
-          set -euo pipefail
-          IMAGE_REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}:${{ github.sha }}-${{ matrix.variant }}-arm64"
-          echo "Smoke-testing $IMAGE_REF"
-          docker pull "$IMAGE_REF"
-          docker run -d --rm --name smoketest -p 8501:8501 "$IMAGE_REF"
-          for i in $(seq 1 90); do
-            if curl -fsSo /dev/null --max-time 2 http://127.0.0.1:8501/_stcore/health; then
-              echo "Streamlit healthy after ${i} attempts"
-              docker stop smoketest
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "ERROR: /_stcore/health never returned 200"
-          docker logs smoketest || true
-          docker stop smoketest || true
-          exit 1
+          # load:true above loaded all meta-action tags into local docker.
+          # Retag the first one to the stable name the kustomize overlay expects.
+          FIRST_TAG=$(printf '%s\n' "${{ steps.meta.outputs.tags }}" | head -n 1)
+          docker tag "$FIRST_TAG" openms-streamlit:test
+
+      - name: Save image as tar
+        run: docker save openms-streamlit:test -o /tmp/image.tar
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openms-streamlit-${{ matrix.variant }}-arm64-image
+          path: /tmp/image.tar
+          retention-days: 1
 
   create-manifest:
     # Stitch the per-arch tags into multi-arch manifest lists. The manifest
@@ -282,19 +275,31 @@ jobs:
     # (not root inside the image). The entrypoint must tolerate both: this job
     # exercises that contract by running the built image under apptainer and
     # waiting for the streamlit /_stcore/health endpoint to come up.
-    needs: build-amd64
-    runs-on: ubuntu-latest
+    needs: [build-amd64, build-arm64]
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        variant: [full, simple]
+        include:
+          - variant: full
+            arch: amd64
+            runner: ubuntu-latest
+          - variant: full
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - variant: simple
+            arch: amd64
+            runner: ubuntu-latest
+          - variant: simple
+            arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
 
       - name: Download image artifact
         uses: actions/download-artifact@v4
         with:
-          name: openms-streamlit-${{ matrix.variant }}-image
+          name: openms-streamlit-${{ matrix.variant }}-${{ matrix.arch }}-image
           path: /tmp
 
       - name: Install apptainer
@@ -424,8 +429,12 @@ jobs:
         if: always()
         run: apptainer instance stop openms-test || true
 
-      - name: Upload validated SIF artifact (push events only)
-        if: success() && github.event_name != 'pull_request'
+      - name: Upload validated SIF artifact (amd64 push events only)
+        # SIF publishing stays amd64-only this iteration (HPC consumers of
+        # the SIF are amd64). The arm64 matrix entry still exercises the
+        # full apptainer contract end-to-end; it just doesn't upload the
+        # resulting SIF for downstream publishing.
+        if: success() && github.event_name != 'pull_request' && matrix.arch == 'amd64'
         uses: actions/upload-artifact@v4
         with:
           name: openms-streamlit-${{ matrix.variant }}-sif
@@ -500,19 +509,31 @@ jobs:
           done <<< "${{ steps.meta.outputs.tags }}"
 
   test-nginx:
-    needs: build-amd64
-    runs-on: ubuntu-latest
+    needs: [build-amd64, build-arm64]
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        variant: [full, simple]
+        include:
+          - variant: full
+            arch: amd64
+            runner: ubuntu-latest
+          - variant: full
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - variant: simple
+            arch: amd64
+            runner: ubuntu-latest
+          - variant: simple
+            arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
 
       - name: Download image artifact
         uses: actions/download-artifact@v4
         with:
-          name: openms-streamlit-${{ matrix.variant }}-image
+          name: openms-streamlit-${{ matrix.variant }}-${{ matrix.arch }}-image
           path: /tmp
 
       - name: Load image into local docker
@@ -587,19 +608,31 @@ jobs:
           done
 
   test-traefik:
-    needs: build-amd64
-    runs-on: ubuntu-latest
+    needs: [build-amd64, build-arm64]
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        variant: [full, simple]
+        include:
+          - variant: full
+            arch: amd64
+            runner: ubuntu-latest
+          - variant: full
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - variant: simple
+            arch: amd64
+            runner: ubuntu-latest
+          - variant: simple
+            arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
 
       - name: Download image artifact
         uses: actions/download-artifact@v4
         with:
-          name: openms-streamlit-${{ matrix.variant }}-image
+          name: openms-streamlit-${{ matrix.variant }}-${{ matrix.arch }}-image
           path: /tmp
 
       - name: Load image into local docker
