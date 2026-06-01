@@ -210,8 +210,6 @@ def load_abundance_data(workspace_path: str, csv_mtime: float) -> tuple | None:
         df = pd.read_csv(csv_file, sep="\t", comment="#", engine="python")
     except Exception:
         return None
-    
-    st.write(f"Loaded quantification data from {csv_file.name} (mtime: {csv_mtime})")
 
     if df.empty:
         return None
