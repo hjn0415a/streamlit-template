@@ -14,18 +14,14 @@ also validates the persistence *contract* (the exact ``_flag_params`` /
 ``_topp_flag_params`` shapes that ``input_TOPP()`` writes), which is where the two
 halves of the feature meet.
 
-Two groups of tests:
-
-* Working behaviour — the parts of the feature that function correctly. All of
-  these pass against the current PR code.
-* ``TestKnownCodeRabbitBugs`` — tests that assert the *correct* behaviour for the
-  two scenarios CodeRabbit flagged as bugs. They FAIL against the current PR
-  code (that is the point — they document the defects) and turn green only once
-  the bugs are fixed. See:
+The suite covers the working behaviour of the feature and also guards the two
+issues CodeRabbit flagged during review, which are now fixed in ``run_topp()``:
     - Finding 1 (per-tool flag fallback):
       https://github.com/OpenMS/streamlit-template/pull/397#discussion_r3585023551
     - Finding 2 (list expansion / empty-list skipping):
       https://github.com/OpenMS/streamlit-template/pull/397#discussion_r3585023558
+The tests that pin those findings carry a "CodeRabbit finding N" note in their
+docstrings and live alongside the related behaviour they protect.
 """
 import os
 import sys
@@ -246,6 +242,24 @@ class TestRegularParameters:
         cmd = build_command({TOOL: {"seq": "ALPHA\nBETA\nGAMMA"}})
         assert values_after(cmd, "seq") == ["ALPHA", "BETA", "GAMMA"]
 
+    def test_merged_list_param_expanded(self):
+        """
+        CodeRabbit finding 2 (fixed): a list-valued merged parameter expands into
+        separate CLI args, not its Python ``str()`` (e.g. ``"['a', 'b']"``).
+        https://github.com/OpenMS/streamlit-template/pull/397#discussion_r3585023558
+        """
+        cmd = build_command({TOOL: {"ids": ["a", "b"]}})
+        assert values_after(cmd, "ids") == ["a", "b"]
+
+    def test_merged_empty_list_param_skipped(self):
+        """
+        CodeRabbit finding 2 (fixed): an empty-list merged parameter is omitted
+        entirely rather than emitting a ``-key`` with no usable value.
+        https://github.com/OpenMS/streamlit-template/pull/397#discussion_r3585023558
+        """
+        cmd = build_command({TOOL: {"ids": []}})
+        assert not has_flag(cmd, "ids")
+
 
 class TestCustomParameters:
     """custom_params share the flag set and expand non-empty lists."""
@@ -275,6 +289,15 @@ class TestCustomParameters:
     def test_custom_empty_string_skipped(self):
         cmd = build_command(custom_params={"opt": ""})
         assert not has_flag(cmd, "opt")
+
+    def test_custom_empty_list_param_skipped(self):
+        """
+        CodeRabbit finding 2 (fixed): an empty-list custom parameter is omitted
+        rather than emitting a bare ``-key`` with no value.
+        https://github.com/OpenMS/streamlit-template/pull/397#discussion_r3585023558
+        """
+        cmd = build_command(custom_params={"ids": []})
+        assert not has_flag(cmd, "ids")
 
 
 class TestFlagSourceContract:
@@ -306,28 +329,14 @@ class TestFlagSourceContract:
         assert is_bare_flag(cmd, "force")
         assert "True" not in cmd
 
-
-# ===================== known bugs flagged by CodeRabbit =====================
-
-
-class TestKnownCodeRabbitBugs:
-    """
-    These assert the CORRECT behaviour for the two scenarios CodeRabbit flagged
-    on PR #397. They FAIL against the current PR code and are expected to pass
-    once each bug is fixed. They are intentionally left unmarked (no xfail) so
-    the failures stay visible.
-    """
-
-    def test_flag_fallback_ignored_when_other_tool_has_flags(self):
+    def test_flag_fallback_uses_current_tool_when_other_tool_has_flags(self):
         """
-        Finding 1 (per-tool fallback):
+        CodeRabbit finding 1 (fixed): when params.json._flag_params holds an entry
+        for a DIFFERENT tool, the current tool's flags must still be read from the
+        session_state fallback. Previously the global ``if not flag_map`` check
+        skipped the fallback whenever any tool had flags, so the current tool's
+        flag was treated as a regular parameter and emitted as ``-force True``.
         https://github.com/OpenMS/streamlit-template/pull/397#discussion_r3585023551
-
-        params.json._flag_params has an entry for a DIFFERENT tool, so the
-        global ``if not flag_map`` check is False and the session_state fallback
-        for the current tool is skipped. The current tool's flag (only in
-        session_state) is therefore ignored and emitted as ``-force True``
-        instead of a bare flag.
         """
         cmd = build_command(
             {"_flag_params": {"OtherTool": ["some_flag"]}, TOOL: {"force": True}},
@@ -335,36 +344,3 @@ class TestKnownCodeRabbitBugs:
         )
         assert is_bare_flag(cmd, "force")
         assert "True" not in cmd
-
-    def test_merged_list_param_expanded(self):
-        """
-        Finding 2 (merged list values stringified instead of expanded):
-        https://github.com/OpenMS/streamlit-template/pull/397#discussion_r3585023558
-
-        A list-valued merged parameter should expand into separate CLI args, not
-        be rendered as its Python ``str()`` (e.g. ``"['a', 'b']"``).
-        """
-        cmd = build_command({TOOL: {"ids": ["a", "b"]}})
-        assert values_after(cmd, "ids") == ["a", "b"]
-
-    def test_merged_empty_list_param_skipped(self):
-        """
-        Finding 2 (empty list not skipped, merged loop):
-        https://github.com/OpenMS/streamlit-template/pull/397#discussion_r3585023558
-
-        An empty-list parameter must be omitted entirely rather than emitting a
-        ``-key`` with no usable value.
-        """
-        cmd = build_command({TOOL: {"ids": []}})
-        assert not has_flag(cmd, "ids")
-
-    def test_custom_empty_list_param_skipped(self):
-        """
-        Finding 2 (empty list not skipped, custom_params loop):
-        https://github.com/OpenMS/streamlit-template/pull/397#discussion_r3585023558
-
-        An empty-list custom parameter must be omitted rather than emitting a
-        bare ``-key`` with no value.
-        """
-        cmd = build_command(custom_params={"ids": []})
-        assert not has_flag(cmd, "ids")
